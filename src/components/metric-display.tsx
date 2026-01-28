@@ -12,13 +12,13 @@ interface MetricDisplayProps {
   progress?: number;
 }
 
-export function MetricDisplay({ 
-  label, 
-  value, 
-  unit, 
-  color, 
+export function MetricDisplay({
+  label,
+  value,
+  unit,
+  color,
   isActive,
-  progress = 0 
+  progress = 0
 }: MetricDisplayProps) {
   const [displayValue, setDisplayValue] = useState(0);
   const prefersReducedMotion = useReducedMotion();
@@ -29,13 +29,13 @@ export function MetricDisplay({
       return;
     }
 
-    // Skip animation if user prefers reduced motion
-    if (prefersReducedMotion) {
+    // Skip animation if user prefers reduced motion OR if actively testing (for real-time updates)
+    if (prefersReducedMotion || isActive) {
       setDisplayValue(value);
       return;
     }
 
-    // Smooth count-up animation
+    // Smooth count-up animation (only for final results)
     const duration = 500; // ms
     const steps = 30;
     const increment = value / steps;
@@ -48,12 +48,12 @@ export function MetricDisplay({
         setDisplayValue(value);
         clearInterval(interval);
       } else {
-        setDisplayValue(Math.floor(increment * currentStep));
+        setDisplayValue(increment * currentStep);
       }
     }, stepDuration);
 
     return () => clearInterval(interval);
-  }, [value, prefersReducedMotion]);
+  }, [value, prefersReducedMotion, isActive]);
 
   const colorClasses = {
     cyan: {
@@ -93,8 +93,8 @@ export function MetricDisplay({
             {label}
           </div>
           <div className={`font-jetbrains font-black text-6xl md:text-7xl lg:text-8xl tabular-nums ${isActive ? colors.text : 'text-brutal-text'}`}>
-            {label === 'PING' 
-              ? displayValue.toFixed(0) 
+            {label === 'PING'
+              ? displayValue.toFixed(0)
               : displayValue.toFixed(2)
             }
           </div>

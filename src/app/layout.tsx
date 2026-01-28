@@ -1,10 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NetworkSpeedTest.network - Browser-Based Speed Testing",
   description: "A brutally fast, browser-based internet speed testing platform that measures download, upload, and ping in real-time without backend dependencies.",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=5",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
   themeColor: "#0A0E14",
 };
 
