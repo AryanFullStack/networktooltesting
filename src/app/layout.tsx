@@ -90,6 +90,9 @@ export const metadata: Metadata = {
     ],
   },
   manifest: '/manifest.json',
+  other: {
+    "google-adsense-account": "ca-pub-6904492820514745"
+  }
 };
 
 export const viewport: Viewport = {
