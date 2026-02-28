@@ -61,72 +61,50 @@ export async function measurePing(onProgress?: (value: number) => void): Promise
  * Measure download speed
  */
 export async function measureDownload(onProgress?: (mbps: number) => void): Promise<number> {
-  const fileSizes = [1, 5, 10, 25, 50]; // MB
-  const testStart = performance.now();
   const TIMEOUT_MS = 10000; // 10 seconds max duration
   let bestMbps = 0;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  for (const sizeMB of fileSizes) {
-    if (performance.now() - testStart >= TIMEOUT_MS) break;
+  try {
+    const response = await fetch(`https://speed.cloudflare.com/__down?bytes=250000000`, {
+      cache: 'no-store',
+      signal: controller.signal
+    });
 
-    const sizeBytes = sizeMB * 1024 * 1024;
-    const start = performance.now();
-
-    try {
-      const controller = new AbortController();
-      const timeRemaining = TIMEOUT_MS - (performance.now() - testStart);
-      const timeoutId = setTimeout(() => controller.abort(), Math.max(timeRemaining, 100));
-
-      const response = await fetch(`https://speed.cloudflare.com/__down?bytes=${sizeBytes}`, {
-        cache: 'no-cache',
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.body) continue;
-
+    if (response.body) {
       const reader = response.body.getReader();
       let receivedBytes = 0;
+      const start = performance.now();
 
-      try {
-        while (true) {
-          if (performance.now() - testStart >= TIMEOUT_MS) {
-            reader.cancel();
-            break;
-          }
+      while (true) {
+        const { done, value } = await reader.read();
 
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          if (value) {
-            receivedBytes += value.length;
-          }
+        if (value) {
+          receivedBytes += value.length;
           const elapsed = (performance.now() - start) / 1000; // seconds
 
-          if (elapsed > 0) {
+          if (elapsed > 0.05) { // Wait 50ms to stabilize
             const bitsReceived = receivedBytes * 8;
             const mbps = (bitsReceived / elapsed) / (1024 * 1024);
 
-            if (mbps > bestMbps) {
-              bestMbps = mbps;
-            }
+            bestMbps = mbps; // We track the cumulative average
 
             if (onProgress) {
               onProgress(Math.round(bestMbps * 100) / 100);
             }
           }
         }
-      } catch (e: any) {
-        if (e.name !== 'AbortError') {
-          console.error('Download stream error:', e);
-        }
-      }
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.error('Download measurement failed:', error);
+
+        if (done) break;
       }
     }
+  } catch (error: any) {
+    if (error.name !== 'AbortError') {
+      console.error('Download measurement failed:', error);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   return Math.round(bestMbps * 100) / 100;
@@ -136,59 +114,61 @@ export async function measureDownload(onProgress?: (mbps: number) => void): Prom
  * Measure upload speed (simulated with POST requests)
  */
 export async function measureUpload(onProgress?: (mbps: number) => void): Promise<number> {
-  const fileSizes = [0.5, 1, 2, 5, 10]; // MB
-  const testStart = performance.now();
   const TIMEOUT_MS = 10000; // 10 seconds max duration
   let bestMbps = 0;
 
-  for (const sizeMB of fileSizes) {
-    if (performance.now() - testStart >= TIMEOUT_MS) break;
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    const start = performance.now();
+    let hasReturned = false;
 
-    const sizeBytes = sizeMB * 1024 * 1024;
+    const finalize = () => {
+      if (!hasReturned) {
+        hasReturned = true;
+        resolve(Math.round(bestMbps * 100) / 100);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      xhr.abort();
+      finalize();
+    }, TIMEOUT_MS);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.loaded > 0) {
+        const elapsed = (performance.now() - start) / 1000;
+        if (elapsed > 0.05) {
+          const bitsUploaded = event.loaded * 8;
+          bestMbps = (bitsUploaded / elapsed) / (1024 * 1024);
+          if (onProgress) {
+            onProgress(Math.round(bestMbps * 100) / 100);
+          }
+        }
+      }
+    };
+
+    xhr.onload = () => {
+      clearTimeout(timeoutId);
+      finalize();
+    };
+
+    xhr.onerror = () => {
+      clearTimeout(timeoutId);
+      finalize();
+    };
+
+    // 50MB payload
+    const sizeBytes = 50 * 1024 * 1024;
     const data = new Uint8Array(sizeBytes);
-
-    // Fill with random data
-    for (let i = 0; i < data.length; i += 1024) {
+    // Fill first few KB to avoid compression artifacts, rest can be zero
+    for (let i = 0; i < Math.min(sizeBytes, 1024 * 1024); i += 1024) {
       data[i] = Math.random() * 255;
     }
 
-    const start = performance.now();
-
-    try {
-      const controller = new AbortController();
-      const timeRemaining = TIMEOUT_MS - (performance.now() - testStart);
-      const timeoutId = setTimeout(() => controller.abort(), Math.max(timeRemaining, 100));
-
-      await fetch('https://speed.cloudflare.com/__up', {
-        method: 'POST',
-        body: data,
-        cache: 'no-cache',
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      const end = performance.now();
-      const duration = (end - start) / 1000; // seconds
-      const bitsUploaded = sizeBytes * 8;
-      const mbps = (bitsUploaded / duration) / (1024 * 1024);
-
-      if (mbps > bestMbps) {
-        bestMbps = mbps;
-      }
-
-      if (onProgress) {
-        onProgress(Math.round(bestMbps * 100) / 100);
-      }
-
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.error('Upload measurement failed:', error);
-      }
-    }
-  }
-
-  return Math.round(bestMbps * 100) / 100;
+    xhr.open('POST', 'https://speed.cloudflare.com/__up', true);
+    xhr.setRequestHeader('Cache-Control', 'no-store');
+    xhr.send(data);
+  });
 }
 
 /**
